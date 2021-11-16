@@ -24,10 +24,10 @@ This would "inject" lodash in `window._`
 
 ```javascript
 // Anywhere in your script,
-_.capitalize
+_.capitalize("I am shouting")
 ```
 
-And boom! You get it.
+And boom! You get the library code. Easy!
 
 ## Part 2: modularization
 
@@ -81,9 +81,9 @@ Loosely, this is how a CommonJS module looks:
 let foo = "I am a secret";
 let bar = 42;
 
-exports.capitalize = function(s) { /* ... */ },
-exports.secretsOfTheUniverse = function() { return bar; },
-exports.shh = function() { return foo },
+exports.capitalize = function(s) { /* ... */ };
+exports.secretsOfTheUniverse = function() { return bar; };
+exports.shh = function() { return foo };
 ```
 
 By default, everything inside the module is private, unless explicitly exported on the `exports` object.
@@ -95,6 +95,9 @@ This also means that the file can now be `require`d, like this:
 const _ = require('./lodash');
 return _.capitalize('I am shouting');
 ```
+
+
+(Side note: Node modules aren't CJS, but they are close, so let's no worry too much about them. One of the differences being that instead of `exports` you'll see `module.exports`.)
 
 #### Tangent: But what about the browser?
 
@@ -203,6 +206,8 @@ export default capitalize('I am shouting');
 This has some benefits:
 
 - First of all, ES modules are *much* easier to statically parse and find dependencies, since you can explicitly declare a subset of a module that you depend on. If we used our commonjs pattern, we need to return regular objects, and that's an expensive operation!
+- ES modules also export bindings instead of values, and this leads to a whole host of performance optimizations.
+- Including asynchronous (dynamic) module loading!
 
 Static analysis of dependency graphs help us know exactly what variable is in scope at exactly what point in time. That's how new tools like [rollup](https://www.rollupjs.org) have incredible tree-shaking capabilities!
 
@@ -210,14 +215,18 @@ Further reading:
 - https://exploringjs.com/es6/ch_modules.html#_benefit-dead-code-elimination-during-bundling
 - https://redfin.engineering/node-modules-at-war-why-commonjs-and-es-modules-cant-get-along-9617135eeca1
 - https://nodejs.org/api/packages.html#determining-module-system
+- https://hacks.mozilla.org/2018/03/es-modules-a-cartoon-deep-dive/
+- https://github.com/rollup/rollup/wiki/ES6-modules
+
+
 
 #### What's the catch?
 
-This also has some drawbacks
+This also has some drawbacks.
 
 First of all, ES Module syntax is not universally supported. It's supported in later versions of Node, but *there's a catch*. Node needs you to name ESM files with a `.mjs` ("module" js) extension. That, or your entire package is ESM and you change the package.json `type` field to `"module"`.
 
-That is annoying!
+That is annoying! And actually the experience is so convoluted that most people don't usually use MJS just yet in Node. **Server code tends to still rely on CJS**. How?
 
 ### Introducing babel
 
@@ -238,10 +247,69 @@ var _lodash = require("lodash");
 (0, _lodash.capitalize)('hello');
 ```
 
+This is done for us behind the scenes of a Rollup configuration.
+
 ### Does babel interfere with tree-shaking?
 
-Yes. Babel by default compiles down to CJS. We want to preserve ESM as much as possible. Google web.dev article suggests we should manually disable this setting:
+Yes. Babel by default compiles down to CJS. We want to preserve ESM as much as possible. Thus, it's important to keep in mind that *when generating ESM targets, we must disable Babel*:
 
-https://developers.google.com/web/fundamentals/performance/optimizing-javascript/tree-shaking
+Per this [Google article](https://developers.google.com/web/fundamentals/performance/optimizing-javascript/tree-shaking) and [webpack docs](https://webpack.js.org/guides/tree-shaking/#conclusion),
 
 We must make sure `preset-env` has `modules: false` to prevent babel from touching our ESM code.
+
+
+## Zoom out: a typical structure for Javascript apps
+
+| | Rollup | Webpack |
+| -- | -- | -- |
+| *Usage* | Building libraries | Building apps |
+| *Compatible inputs* | ESM, CJS | ESM, CJS |
+| *Outputs* | ESM, CJS | CJS |
+| *Browser bundles* | Yes | Yes |
+| *Babel preprocessing* | Yes | Yes |
+| *Tree-shaking with CJS inputs* | Yes, sort of | No |
+| *Tree-shaking with ESM inputs* | Yes | Yes |
+
+The key difference to note here is that **when building libraries, you will want to use Rollup** because it **generates ESM output**. You then want to turn around and feed the ESM in to Webpack, which is really good at packaging entire applications.
+
+## Packaging a library for ESM compatibility in package.json
+
+When building a library, it is important that you build it's package.json out to properly support ESM output.
+
+From [Rollup docs](https://rollupjs.org/guide/en/#publishing-es-modules) (emphasis added):
+
+> If your package.json file also has a module field, ES-module-aware tools like Rollup and webpack 2+ will **import the ES module version directly.**
+
+How does that work?
+
+```json
+{ 
+  "main": "./path/to/library.cjs.js",
+  "module": "./path/to/library.esm.js",
+}
+```
+
+From the [Rollup wiki](https://github.com/rollup/rollup/wiki/pkg.module):
+
+> For Rollup to work its magic, it needs the library to be written in ES6 modules. The library's package.json file should use the module field to point to the main file.
+>
+>Until all the libraries you use are available as ES6 modules, you can use Rollup to generate a CommonJS or AMD bundle, which you can then feed into something like Browserify or the RequireJS optimiser.
+
+
+#### The `sideEffects` property
+
+You can additionally annotate code in your library as "side effect free" which further helps Webpack tree-shake. It lets Webpack know that if you don't have any code that modifies outer or global state.
+
+```json
+{ 
+  "sideEffects": false,
+}
+```
+
+This is especially important for libraries that re-export everything at root in a `index.ts` file. Without `sideEffects`, our compiler has difficulty understanding what is shakeable and what isn't.
+
+Further reading: https://sgom.es/posts/2020-06-15-everything-you-never-wanted-to-know-about-side-effects/
+
+
+### Recap
+
