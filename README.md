@@ -311,5 +311,38 @@ This is especially important for libraries that re-export everything at root in 
 Further reading: https://sgom.es/posts/2020-06-15-everything-you-never-wanted-to-know-about-side-effects/
 
 
-### Recap
+## Let's talk about server/browser interop
 
+All this has been pretty nifty in the context of generating browser-only builds, or server-only builds, but we live in the world of isomorphic apps where we need to build code that works in both server and client.
+
+Packages also define another field that allow them to specify a browser-specific target: `"browser"`:
+
+```json
+{
+  "browser": "path/to/library.browser.umd.js"
+}
+```
+
+This file is basically the code that should load in browsers. This is a hint to build systems that target browsers that the code inside is consumable by browsers. 
+
+It also is free from server features - so not possible to reference `process.env`, or Node-native modules.
+
+### What about ESM in the browser?
+
+We know that browsers, up to only recently, did not natively parse ES modules. Those that could would need to load ES modules like so:
+
+```html
+<script src-"library.esm.js" type="module" />
+```
+
+Now it's still pretty exciting - you can go ahead and compile ESM and load it up in the browser and do all sorts of cool things with it.
+
+We generate another experimental field in our package.json: `"browser:modern"`
+
+```json
+{
+  "browser:modern": "path/to/library.browser.esm.js"
+}
+```
+
+This is another build system hint that the code in here is browser-specific, and that it is in ES module (read: tree-shakeable) format.
